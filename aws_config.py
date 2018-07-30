@@ -3,7 +3,7 @@
 
 import boto3
 import botocore
-import yahoo.ysecure
+import ysecure
 import re
 #from ruamel.yaml import YAML
 import os,sys,yaml
@@ -12,8 +12,8 @@ def assign_resource(service_name,region):
 	resource = boto3.resource(
 			service_name,
 			region,
-                	aws_access_key_id= get_ykeykey_key('aws_ansible_ghe'),
-                	aws_secret_access_key= get_ykeykey_key('aws_ansible_ghe_secret'),
+                	aws_access_key_id= get_ykeykey_key('key_name'),
+                	aws_secret_access_key= get_ykeykey_key('secret_name'),
 		)
 	return resource
 
@@ -21,8 +21,8 @@ def assign_client(service_name,region):
 	client = boto3.client(
 			service_name,
                         region,
-                        aws_access_key_id= get_ykeykey_key('aws_ansible_ghe'),
-                        aws_secret_access_key= get_ykeykey_key('aws_ansible_ghe_secret'),
+                        aws_access_key_id= get_ykeykey_key('key_name'),
+                        aws_secret_access_key= get_ykeykey_key('secret_name'),
                 )
 	return client
 
@@ -367,10 +367,10 @@ def yaml_file(content,file,item):
 	except IOError:
 		print('Could not write to the file: ',filename) 
 
-
+#Define your own function here to get the key and it's value
 def get_ykeykey_key(key):
 	try:
-		key_value = yahoo.ysecure.get_key(key)
+		key_value = ysecure.get_key(key)
 		return key_value
 	except RuntimeError:
 		print('Could not execute the call to ysecure')
