@@ -1,0 +1,6 @@
+So aws_config.py looks at just the running instances while aws_config_all_resources.py looks at all the existing instances 
+under that account in a particular region.
+
+The idea behind using something like aws_config_all_resources.py is to create a vars file for an ansible playbook that could 
+reference that var file as a dict in the main.yml file and create those resources inside AWS. This comes in handy when there is 
+a need to automate the infrastructure deployment. 
