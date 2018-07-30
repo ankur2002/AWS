@@ -3,14 +3,14 @@
 
 import boto3
 import botocore
-import yahoo.ysecure
+import ysecure
 
 
 def assign_client(service_name):
 	client = boto3.client(
 		service_name,
-		aws_access_key_id=get_ykeykey_key('aws_ansible_ghe'),
-		aws_secret_access_key=get_ykeykey_key('aws_ansible_ghe_secret'),
+		aws_access_key_id=get_ykeykey_key('key_name'),
+		aws_secret_access_key=get_ykeykey_key('secret_name'),
 	)
 	return client
 
@@ -19,8 +19,8 @@ def assign_client_region(service_name, region):
 	client = boto3.client(
 		service_name,
 		region,
-		aws_access_key_id=get_ykeykey_key('aws_ansible_ghe'),
-		aws_secret_access_key=get_ykeykey_key('aws_ansible_ghe_secret'),
+		aws_access_key_id=get_ykeykey_key('key_name'),
+		aws_secret_access_key=get_ykeykey_key('secret_name'),
 	)
 	return client
 
@@ -45,10 +45,10 @@ def get_bucket_names(s3, regions):
 			bucket_dict[bucket_name] = region
 	return bucket_list, bucket_dict
 
-
+#Modify this to get the AWS key and secret info.
 def get_ykeykey_key(key):
 	try:
-		key_value = yahoo.ysecure.get_key(key)
+		key_value = ysecure.get_key(key)
 		return key_value
 	except RuntimeError:
 		print('Could not execute the call to ysecure')
