@@ -3,11 +3,12 @@
 
 import boto3
 import botocore
-import ysecure
+#import ysecure
 import re
 #from ruamel.yaml import YAML
 import os,sys,yaml
 
+#This function can be replaces with something that can load the aws configuration values in order to connect with AWS.
 def assign_resource(service_name,region):
 	resource = boto3.resource(
 			service_name,
@@ -17,6 +18,7 @@ def assign_resource(service_name,region):
 		)
 	return resource
 
+#This function can be replaces with something that can load the aws configuration values in order to connect with AWS.
 def assign_client(service_name,region):
 	client = boto3.client(
 			service_name,
