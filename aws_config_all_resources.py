@@ -268,6 +268,7 @@ def network_acl(ec2,subnet_list):
 	'''
 	acls = {}
 	acl_subnet = {}
+	#This list can be expanded to include other entries (https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml).
 	protocols = {'-1':'ALL','6':'TCP','17':'UDP','1':'ICMP'}
 	for subnet in subnet_list:
 		try:
