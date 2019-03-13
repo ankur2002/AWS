@@ -3,28 +3,26 @@
 
 import boto3
 import botocore
-#import ysecure
+import yahoo.ysecure
 import re
 #from ruamel.yaml import YAML
 import os,sys,yaml
 
-#This function can be replaces with something that can load the aws configuration values in order to connect with AWS.
 def assign_resource(service_name,region):
 	resource = boto3.resource(
 			service_name,
 			region,
-					aws_access_key_id= get_ykeykey_key('key_name'),
-					aws_secret_access_key= get_ykeykey_key('secret_name'),
+					aws_access_key_id= get_ykeykey_key('aws_ansible_ghe'),
+					aws_secret_access_key= get_ykeykey_key('aws_ansible_ghe_secret'),
 		)
 	return resource
 
-#This function can be replaces with something that can load the aws configuration values in order to connect with AWS.
 def assign_client(service_name,region):
 	client = boto3.client(
 			service_name,
 						region,
-						aws_access_key_id= get_ykeykey_key('key_name'),
-						aws_secret_access_key= get_ykeykey_key('secret_name'),
+						aws_access_key_id= get_ykeykey_key('aws_ansible_ghe'),
+						aws_secret_access_key= get_ykeykey_key('aws_ansible_ghe_secret'),
 				)
 	return client
 
@@ -268,7 +266,6 @@ def network_acl(ec2,subnet_list):
 	'''
 	acls = {}
 	acl_subnet = {}
-	#This list can be expanded to include other entries (https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml).
 	protocols = {'-1':'ALL','6':'TCP','17':'UDP','1':'ICMP'}
 	for subnet in subnet_list:
 		try:
@@ -485,10 +482,10 @@ def yaml_file(content,file,item):
 	except IOError:
 		print('Could not write to the file: ',filename) 
 
-#Define a different method to obtain the key and the secret for the AWS account
+
 def get_ykeykey_key(key):
 	try:
-		key_value = ysecure.get_key(key)
+		key_value = yahoo.ysecure.get_key(key)
 		return key_value
 	except RuntimeError:
 		print('Could not execute the call to ysecure')
