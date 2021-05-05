@@ -9,6 +9,12 @@ import re
 import os,sys,yaml
 
 def assign_resource(service_name,region):
+        session = boto3.Session(profile_name=profile)
+        resource = session.resource(service_name, region)
+        return resource
+
+#Add the key to ckms and start referencing it here!!
+'''def assign_resource(service_name,region):	resource = boto3.resource(
 	resource = boto3.resource(
 			service_name,
 			region,
@@ -25,6 +31,13 @@ def assign_client(service_name,region):
 						aws_secret_access_key= get_ykeykey_key('aws_ansible_ghe_secret'),
 				)
 	return client
+'''
+
+def assign_client(service_name,region):
+        session = boto3.Session(profile_name=profile)
+        resource = session.client(service_name, region)
+        return resource
+
 
 def ec2_describe_instances(region):
 	"""This uses a filter to look at the running ec2 instances in a specific region and adds the ec2 attributes into a dict.
@@ -41,7 +54,8 @@ def ec2_describe_instances(region):
 	ec2 = assign_resource('ec2',region)
 	#instances = ec2.instances.filter(Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
 	for instance in ec2.instances.all():
-                ec2_list.append(instance.id)
+		print(instance.id)
+		ec2_list.append(instance.id)
         
 
 	for id in ec2_list:
@@ -301,7 +315,10 @@ def nacl_info(entries):
 			from_port = item['PortRange']['From']
 			to_port = item['PortRange']['To']
 		if item['RuleNumber'] != 32767:
-			e_list = [item['RuleNumber'],protocols[protocol],item['RuleAction'],item['CidrBlock'],None,None,from_port,to_port] 
+			if 'CidrBlock' in item:
+				e_list = [item['RuleNumber'],protocols[protocol],item['RuleAction'],item['CidrBlock'],None,None,from_port,to_port]
+			elif 'Ipv6CidrBlock' in item:
+				e_list = [item['RuleNumber'],protocols[protocol],item['RuleAction'],item['Ipv6CidrBlock'],None,None,from_port,to_port] 
 		else:
 			continue
 		if item['Egress']:
@@ -311,30 +328,55 @@ def nacl_info(entries):
 	return egress,ingress
 
 
-def security_groups(ec2, region):
-	'''This grabs all of the security groups related information that are linked to the running instances
+def security_groups(vpc_list, region):
+		'''This grabs all of the security groups related information that are linked to the running instances
 			Parameters:
 				ec2: That is just the resource passed over from ec2_describe_instances function
 				region: The AWS region to traverse.
 			Returns:
 				sg_info: Returns a dictionary of dictionaries of security groups containing the id as the key and group_name, rules, vpc_id etc. as the keys inside the dictionary represented by the id.
 		'''
-		sg_ids = []
+		#sg_ids = []
 		sg_info = {}
 
-		for sg in ec2.security_groups.all():
-			sg_ids.append(sg.id)
-		
+		ec2, sg_ids = get_sg_ids(vpc_list, region)
+		print(sg_ids)
 		for id in sg_ids:
 			try:
 				security_group = ec2.SecurityGroup(id)
-				sg_info[id] = {'group_id': security_group.group_id, 'group_name': security_group.group_name, 'rules': security_group.ip_permissions, 'rules_egress': security_group.ip_permissions_egress, 'vpc_id': security_group.vpc_id}
-				sg_info = security_groups_info(sg_info,'rules',id)
-				sg_info = security_groups_info(sg_info,'rules_egress',id)
+				sg_info[id] = {'group_id': security_group.group_id, 'group_name': security_group.group_name, 'rules': security_group.ip_permissions, 'rules_egress': security_group.ip_permissions_egress, 'vpc_id': security_group.vpc_id, 'tags': security_group.tags, 'description': security_group.description}
+				if not check_default_sg(sg_info, id):
+					sg_info = security_groups_info(sg_info,'rules',id)
+					sg_info = security_groups_info(sg_info,'rules_egress',id)
+					if sg_info[id]['tags']:
+						sg_info = tags_dict(sg_info, 'tags', id)
+					else:
+						sg_info[id]['tags'] = {}
+				else:
+					del sg_info[id]
+					continue
 			except botocore.exceptions.ClientError as e:
 				print('The security_groups operation failed due to:', e.reason)
+		print(sg_info)
 		sg_info = {'sg_dict': sg_info}
 		return sg_info
+
+def get_sg_ids(vpc_list, region):
+	sg_ids = []
+	ec2 = assign_resource('ec2', region)
+	for id in vpc_list:
+		vpc = ec2.Vpc(id)
+		for sg in vpc.security_groups.all():
+			sg_ids.append(sg.id)
+	return ec2, sg_ids
+
+
+def check_default_sg(sg_info, id):
+	group_name = 'default'
+	description = 'default VPC security group'
+
+	if sg_info[id]['group_name'] == group_name and sg_info[id]['description'] == description:
+		return True
 
 
 def security_groups_info(sec_gr, rule_name, sec_id):
@@ -342,6 +384,7 @@ def security_groups_info(sec_gr, rule_name, sec_id):
 
 	if sec_gr[sec_id][rule_name]:
 		for rules in sec_gr[sec_id][rule_name]:
+			print(rules)
 			if rules['IpProtocol'] != '-1':
 				if rules['IpRanges'] and rules['UserIdGroupPairs']:
 					for entry in rules['IpRanges']:
@@ -365,7 +408,11 @@ def security_groups_info(sec_gr, rule_name, sec_id):
 						rule.append({'proto': 'all', 'cidr_ip': entry['CidrIp'], 'from_port': 'all', 'to_port': 'all'})
 				elif rules['UserIdGroupPairs'] and not rules['IpRanges']:
 					for entry in rules['UserIdGroupPairs']:
-						rule.append({'proto': rules['IpProtocol'], 'from_port': rules['FromPort'], 'to_port': rules['ToPort'], 'group_id': entry['GroupId']})
+						if 'FromPort' in rules and 'ToPort' in rules:
+							rule.append({'proto': rules['IpProtocol'], 'from_port': rules['FromPort'], 'to_port': rules['ToPort'], 'group_id': entry['GroupId']})
+						elif 'FromPort' not in rules and 'ToPort' not in rules:
+							rule.append({'proto': rules['IpProtocol'], 'group_id': entry['GroupId']})
+
 			sec_gr[sec_id][rule_name]= rule
 	return sec_gr
 
@@ -460,16 +507,54 @@ def tags_dict(dict_name,tag_name,key):
 	dict_name[key][tag_name] = new_tags
 	return dict_name
 
-def elb_info():
+def elb_info(region):
+	elb_info = {}
+	elb_listeners = {}
 	#Module currently not supported by Ansible
 	regex = 'NLB'
-	elb = assign_client('elbv2','us-west-1')
+	elb = assign_client('elbv2',region)
+	lbs = elb.describe_load_balancers()
+	for item in lbs['LoadBalancers']: 
+		elb_id = item['LoadBalancerArn']
+		elb_name = item['LoadBalancerName']
+		elb_scheme = item['Scheme']
+		if item['State']['Code'] == 'active':
+                                state = 'present'
+		subnets = []
+		availability_zone = []
+		for item in item['AvailabilityZones']:
+			availability_zone.append(item['ZoneName'])
+			subnets.append(item['SubnetId'])
+			if 'SecurityGroups' in item:
+				sec_groups = item['SecurityGroups']
+			else:
+				sec_groups = ''
+		#lbs_attr = elb.describe_load_balancer_attributes(LoadBalancerArn = elb_id)
+		#print(lbs_attr)
+		lbs_listeners = elb.describe_listeners(LoadBalancerArn = elb_id)
+		for item in lbs_listeners['Listeners']:
+			elb_listeners[elb_id] = {'load_balancer_port': item['Port'], 'protocol' : item['Protocol']}
+		if sec_groups:
+			elb_info[elb_id] = {'name' : elb_name, 'scheme': elb_scheme, 'region': region, 'state': state, 'subnets': subnets, 'zones': availability_zone, 'listeners': elb_listeners[elb_id], 'security_group_ids': sec_groups}
+		else:
+			elb_info[elb_id] = {'name' : elb_name, 'scheme': elb_scheme, 'region': region, 'state': state, 'subnets': subnets, 'zones': availability_zone, 'listeners': elb_listeners[elb_id]}
+	return elb_info
+
+def elb_target_info(region):
+	elb_target_group = {}
+	
+	regex = 'net'
+	elb = assign_client('elbv2',region)
 	lbs = elb.describe_load_balancers()
 	lb_names = [lb[key] for lb in lbs['LoadBalancers'] for key in lb.keys() if key == 'LoadBalancerArn']
 	for item in lb_names:
 		if re.search(regex, item):
 			res = elb.describe_target_groups(LoadBalancerArn=item)
-			print(res)
+			for item in res['TargetGroups']:
+				elb_id = item['TargetGroupArn']
+				elb_target_group[elb_id] = {'name': item['TargetGroupName'], 'protocol': item['HealthCheckProtocol'], 'vpc_id': item['VpcId']}
+	return elb_target_group
+
 
 def yaml_file(content,file,item):
 	filename = os.path.split(file)[1]
@@ -492,24 +577,26 @@ def get_ykeykey_key(key):
 
 
 if __name__ == '__main__':
-	subnet_file = './subnets.yaml'
-	vpc_file = './vpc.yaml'
-	sg_file = './sg.yaml'
-	acl_file = './acl.yaml'
-	route_file = './route.yaml'
-	volume_file = './volume.yaml'
-	ec2_file = './ec2.yaml'
-	nat_file = './nat.yaml'
-	igw_file = './igw.yaml'
-	region = 'us-east-2'
+	profile = 'datacoe'
+	subnet_file = './yaml/subnets.yaml'
+	vpc_file = './yaml/vpc.yaml'
+	sg_file = './yaml/sg.yaml'
+	acl_file = './yaml/acl.yaml'
+	route_file = './yaml/route.yaml'
+	volume_file = './yaml/volume.yaml'
+	ec2_file = './yaml/ec2.yaml'
+	nat_file = './yaml/nat.yaml'
+	igw_file = './yaml/igw.yaml'
+	elb_file = './yaml/elb.yaml'
+	elb_tg_file = './yaml/elb_tg.yaml'
+	region = 'us-east-1'
  
 	#key = get_ykeykey_key('aws_ansible_ghe')
 	#print(key)
 	#value = get_ykeykey_key('aws_ansible_ghe_secret')
 	#print(value)
-	
-	ec2,instance_list = ec2_describe_instances(region)
-	print(instance_list)
+
+	'''	
 	volume_list,volume_dict = volume_list(ec2,instance_list)
 	print(volume_list)
 	#snapshot_dict = create_snapshot(ec2,volume_list,volume_dict)
@@ -521,7 +608,12 @@ if __name__ == '__main__':
 	ec2_dict = ec2_info(ec2,region, volume_dict, volume_info_dict)
 	yaml_file(ec2_dict,ec2_file,'ec2_dict')
 	print(ec2_dict)
-
+    '''
+	ec2, instance_list = ec2_describe_instances(region)
+	print(instance_list)
+	vpc_list, vpcs = vpc_list(ec2, instance_list)
+	print(vpcs, vpc_list)
+	yaml_file(vpcs, vpc_file, 'vpc_dict')
 	subnet_list,subnets = subnet_list(ec2,instance_list)
 	print(subnet_list,subnets)
 	yaml_file(subnets,subnet_file,'subnet_dict')
@@ -531,16 +623,16 @@ if __name__ == '__main__':
 	acl_info,acls = network_acl(ec2,subnet_list)
 	print(acl_info,acls)
 	yaml_file(acls,acl_file,'acl_dict')
-	sg_info = security_groups(ec2, instance_list)
-	print(sg_info)
-	yaml_file(sg_info,sg_file,'sg_dict')
-	vpc_list,vpcs = vpc_list(ec2,instance_list)
-	print(vpcs,vpc_list)
-	yaml_file(vpcs,vpc_file,'vpc_dict')
 	nat_gw = nat_list(vpc_list)
 	yaml_file(nat_gw, nat_file, 'nat_dict')
 	print(nat_gw)
 	igw_info = igw_list(ec2,vpc_list)
 	yaml_file(igw_info,igw_file,'igw_dict')
 	print(igw_info)
-	elb_info()
+
+	sg_info = security_groups(vpc_list, region)
+	print(sg_info)
+	yaml_file(sg_info,sg_file,'sg_dict')
+	elb_info = elb_info(region)
+	yaml_file(elb_info,elb_file,'elb_dict')
+	elb_target_group = elb_target_info(region)
